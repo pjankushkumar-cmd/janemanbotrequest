@@ -2,6 +2,7 @@ import logging
 import json
 import sys
 import os
+import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ChatJoinRequestHandler, ContextTypes, MessageHandler, filters
 
@@ -13,64 +14,153 @@ BOT_TOKEN = "8519668511:AAGRSIALAvifSGxmKQwvggZnTIamiu7707Q"
 ADMIN_ID = 8767998937 
 # ===================================================================
 
-# In-Memory Storage
-SAVED_MESSAGES = [] 
-AUTO_ACCEPT_STATUS = "OFF"
-TOTAL_REQUESTS = 0
-ACCEPTED_REQUESTS = 0
-DATABASE_USERS = set([ADMIN_ID])
-
 if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or ADMIN_ID == 123456789:
     print("\n❌ ERROR: Pehle apna BOT_TOKEN aur ADMIN_ID code me sahi se badlo!\n")
     sys.exit(1)
 
+# SQLite Database Initialization (FIXED: AUTOINCREMENT Syntax Error Solved)
+def init_db():
+    conn = sqlite3.connect('janeman_pro.db')
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS stats (key TEXT PRIMARY KEY, count INTEGER)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)''')
+    
+    # Render aur SQLite me hamesha AUTOINCREMENT hota hai (AUTO_INCREMENT nahi)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS messages_list (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                        chat_id TEXT, 
+                        msg_id TEXT
+                    )''')
+
+    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('auto_accept', 'OFF')")
+    cursor.execute("INSERT OR IGNORE INTO stats VALUES ('total_requests', 0)")
+    cursor.execute("INSERT OR IGNORE INTO stats VALUES ('accepted', 0)")
+    conn.commit()
+    conn.close()
+
+# Database helper functions
+def get_setting(key):
+    conn = sqlite3.connect('janeman_pro.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM settings WHERE key=?", (key,))
+    res = cursor.fetchone()
+    conn.close()
+    return res[0] if res else "OFF"
+
+def set_setting(key, value):
+    conn = sqlite3.connect('janeman_pro.db')
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO settings VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
+
+def add_saved_message(chat_id, msg_id):
+    conn = sqlite3.connect('janeman_pro.db')
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO messages_list (chat_id, msg_id) VALUES (?, ?)", (str(chat_id), str(msg_id)))
+    conn.commit()
+    conn.close()
+
+def clear_saved_messages():
+    conn = sqlite3.connect('janeman_pro.db')
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM messages_list")
+    conn.commit()
+    conn.close()
+
+def get_all_saved_messages():
+    conn = sqlite3.connect('janeman_pro.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT chat_id, msg_id FROM messages_list ORDER BY id ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def add_user(user_id):
+    conn = sqlite3.connect('janeman_pro.db')
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO users VALUES (?)", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_all_users():
+    conn = sqlite3.connect('janeman_pro.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id FROM users")
+    users = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return users
+
+def get_stats():
+    conn = sqlite3.connect('janeman_pro.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT key, count FROM stats")
+    res = dict(cursor.fetchall())
+    conn.close()
+    return res
+
+def update_stat(key, amount=1):
+    conn = sqlite3.connect('janeman_pro.db')
+    cursor = conn.cursor()
+    cursor.execute("UPDATE stats SET count = count + ? WHERE key=?", (amount, key))
+    conn.commit()
+    conn.close()
+
+# Menu UI Generation
 def get_main_menu():
-    global TOTAL_REQUESTS, ACCEPTED_REQUESTS, DATABASE_USERS
+    stats = get_stats()
+    total_users = len(get_all_users())
     keyboard = [
-        [InlineKeyboardButton(f"📊 Total Requests: {TOTAL_REQUESTS}", callback_data="none")],
-        [InlineKeyboardButton(f"✅ Auto-Approved: {ACCEPTED_REQUESTS}", callback_data="none")],
-        [InlineKeyboardButton(f"👥 Database Users: {len(DATABASE_USERS)}", callback_data="none")],
+        [InlineKeyboardButton(f"📊 Total Requests: {stats.get('total_requests', 0)}", callback_data="none")],
+        [InlineKeyboardButton(f"✅ Auto-Approved: {stats.get('accepted', 0)}", callback_data="none")],
+        [InlineKeyboardButton(f"👥 Database Users: {total_users}", callback_data="none")],
         [InlineKeyboardButton("⚙️ Welcome Settings", callback_data="welcome_settings"), InlineKeyboardButton("📣 Broadcast Tool", callback_data="broadcast_tool")],
         [InlineKeyboardButton("🔄 Refresh Panel", callback_data="refresh_main")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def get_welcome_menu():
-    global AUTO_ACCEPT_STATUS, SAVED_MESSAGES
-    status_emoji = "🟢 ON (Auto Accept)" if AUTO_ACCEPT_STATUS == "ON" else "🔴 OFF (Manual/No Accept)"
+    auto_status = get_setting("auto_accept")
+    status_emoji = "🟢 ON (Auto Accept)" if auto_status == "ON" else "🔴 OFF (Manual/No Accept)"
+    total_saved = len(get_all_saved_messages())
     keyboard = [
         [InlineKeyboardButton(f"Status: {status_emoji}", callback_data="toggle_auto")],
         [InlineKeyboardButton(f"➕ Add Message / Voice / Media", callback_data="edit_welcome")],
-        [InlineKeyboardButton(f"🗑️ Clear All Saved ({len(SAVED_MESSAGES)})", callback_data="clear_welcome")],
+        [InlineKeyboardButton(f"🗑️ Clear All Saved ({total_saved})", callback_data="clear_welcome")],
         [InlineKeyboardButton("👁️ Test Sequence Message", callback_data="test_msg")],
         [InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="refresh_main")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 async def send_sequence_messages(bot, chat_id):
-    global SAVED_MESSAGES
-    if not SAVED_MESSAGES:
-        await bot.send_message(chat_id=chat_id, text="👋 Aapki join request received ho gayi hai!")
+    saved_messages = get_all_saved_messages()
+    if not saved_messages:
+        try:
+            await bot.send_message(chat_id=chat_id, text="👋 Aapki join request received ho gayi hai!")
+        except Exception:
+            pass
         return
 
-    for msg_data in SAVED_MESSAGES:
+    for row in saved_messages:
+        s_chat_id, s_msg_id = row
         try:
-            # Super Fast Direct Copy
-            await bot.copy_message(chat_id=chat_id, from_chat_id=int(msg_data['chat_id']), message_id=int(msg_data['msg_id']))
+            # VIP Direct Copy Method - Fast & Reliable
+            await bot.copy_message(chat_id=chat_id, from_chat_id=int(s_chat_id), message_id=int(s_msg_id))
         except Exception as e:
             logging.error(f"Copy message failed in sequence: {e}")
 
+# Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_user:
         return
-    DATABASE_USERS.add(update.effective_user.id)
+    add_user(update.effective_user.id)
     if update.effective_user.id != ADMIN_ID:
         return
         
-    await update.message.reply_text("👑 **PRO Admin Control Panel v7 (INSTANT WEBHOOK)** 👑\n\nAapka bot ab bina delay ke instant response dene ke liye taiyar hai:", reply_markup=get_main_menu(), parse_mode="Markdown")
+    await update.message.reply_text("👑 **JANEMAN BOT SUPPORT V10** 👑\n\nAapka swagat hai admin! Panel bilkul tayyar hai:", reply_markup=get_main_menu(), parse_mode="Markdown")
 
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global AUTO_ACCEPT_STATUS, SAVED_MESSAGES
     query = update.callback_query
     if not query or query.from_user.id != ADMIN_ID:
         await query.answer("Access Denied!", show_alert=True)
@@ -78,29 +168,35 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "refresh_main":
-        await query.edit_message_text("👑 **PRO Admin Control Panel v7** 👑\n\nAapka swagat hai admin! Sabhi functions niche se control karein:", reply_markup=get_main_menu(), parse_mode="Markdown")
+        await query.edit_message_text("👑 **JANEMAN BOT SUPPORT V10** 👑\n\nAapka swagat hai admin! Panel refreshed:", reply_markup=get_main_menu(), parse_mode="Markdown")
 
     elif query.data == "welcome_settings":
-        text = f"⚙️ **Welcome Sequence Settings**\n\n🔄 Auto Accept Status: **{AUTO_ACCEPT_STATUS}**\n📦 Total Messages Added in Sequence: **{len(SAVED_MESSAGES)}**\n\n📌 *Webhook active hai. Messages ab bina delay ke instant deliver honge.*"
+        auto_status = get_setting("auto_accept")
+        total_saved = len(get_all_saved_messages())
+        text = f"⚙️ **Welcome Sequence Settings**\n\n🔄 Auto Accept Status: **{auto_status}**\n📦 Total Messages Added: **{total_saved}**"
         await query.edit_message_text(text, reply_markup=get_welcome_menu(), parse_mode="Markdown")
 
     elif query.data == "toggle_auto":
-        AUTO_ACCEPT_STATUS = "ON" if AUTO_ACCEPT_STATUS == "OFF" else "OFF"
-        text = f"⚙️ **Welcome Sequence Settings**\n\n🔄 Auto Accept Status: **{AUTO_ACCEPT_STATUS}**\n📦 Total Messages Added in Sequence: **{len(SAVED_MESSAGES)}**"
+        current = get_setting("auto_accept")
+        new_status = "ON" if current == "OFF" else "OFF"
+        set_setting("auto_accept", new_status)
+        total_saved = len(get_all_saved_messages())
+        text = f"⚙️ **Welcome Sequence Settings**\n\n🔄 Auto Accept Status: **{new_status}**\n📦 Total Messages Added: **{total_saved}**"
         await query.edit_message_text(text, reply_markup=get_welcome_menu(), parse_mode="Markdown")
 
     elif query.data == "edit_welcome":
         context.user_data['state'] = 'waiting_welcome'
-        await query.edit_message_text("📝 **Apna Welcome Message/Voice Note/Media bhejein:**\n\nJo bhi message sequence me add karna hai send kijiye. Rokne ke liye `/start` likhein.")
+        await query.edit_message_text("📝 **Apna Welcome Message/Voice/Media send karein:**\n\nEk ek karke bhejein. Finish karne par dubara `/start` type karein.")
 
     elif query.data == "clear_welcome":
-        SAVED_MESSAGES.clear()
-        text = f"🗑️ **Saare saved messages delete kar diye gaye hain!**\n\n🔄 Auto Accept Status: **{AUTO_ACCEPT_STATUS}**\n📦 Total Messages Added in Sequence: **0**"
+        clear_saved_messages()
+        auto_status = get_setting("auto_accept")
+        text = f"🗑️ **Saare saved messages clear ho gaye!**\n\n🔄 Auto Accept Status: **{auto_status}**\n📦 Total Messages Added: **0**"
         await query.edit_message_text(text, reply_markup=get_welcome_menu(), parse_mode="Markdown")
 
     elif query.data == "broadcast_tool":
         context.user_data['state'] = 'waiting_broadcast'
-        await query.edit_message_text("📣 **Broadcast Post bhejein:**\n\nJo bhi post sabhi users ko bhejni hai, use send karein. Cancel ke liye /start likhein.")
+        await query.edit_message_text("📣 **Broadcast Post bhejein:**\n\nJo post sabhi users ko bhejni hai wo send karein. Cancel ke liye /start likhein.")
 
     elif query.data == "test_msg":
         await query.message.reply_text("🔄 *Test sequence deliver ho raha hai...*")
@@ -110,7 +206,6 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(f"❌ Error: {e}")
 
 async def content_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global SAVED_MESSAGES, DATABASE_USERS
     if not update.effective_user or update.effective_user.id != ADMIN_ID:
         return
     state = context.user_data.get('state')
@@ -118,37 +213,37 @@ async def content_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if state == 'waiting_welcome':
-        SAVED_MESSAGES.append({
-            "chat_id": str(update.message.chat_id),
-            "msg_id": str(update.message.message_id)
-        })
-        await update.message.reply_text(f"✅ Message sequence mein add ho gaya! (Total Added: {len(SAVED_MESSAGES)})\n\nAap aur bhi voice/media bhej sakte hain, ya panel par wapas jaane ke liye `/start` likhein.")
+        add_saved_message(update.message.chat_id, update.message.message_id)
+        total_saved = len(get_all_saved_messages())
+        await update.message.reply_text(f"✅ Added to sequence! (Total: {total_saved})\nAur bhejna hai toh send karte rahiye, ya `/start` likhiye.")
 
     elif state == 'waiting_broadcast':
         context.user_data['state'] = None
-        await update.message.reply_text(f"🚀 Broadcast Shuru! Total Users: {len(DATABASE_USERS)}")
+        users = get_all_users()
+        await update.message.reply_text(f"🚀 Broadcast Shuru! Total Users: {len(users)}")
         s, f = 0, 0
-        for u_id in DATABASE_USERS:
+        for u_id in users:
             try:
                 await context.bot.copy_message(chat_id=u_id, from_chat_id=update.message.chat_id, message_id=update.message.message_id)
                 s += 1
-            except Exception: 
+            except Exception:
                 f += 1
         await update.message.reply_text(f"🏁 Broadcast Complete!\n\n✅ Pass: {s}\n❌ Fail: {f}")
 
 async def join_request_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global TOTAL_REQUESTS, ACCEPTED_REQUESTS, AUTO_ACCEPT_STATUS, DATABASE_USERS
     request = update.chat_join_request
     chat = request.chat
     user = request.from_user
 
-    TOTAL_REQUESTS += 1
-    DATABASE_USERS.add(user.id)
+    update_stat('total_requests', 1)
+    add_user(user.id)
 
-    if AUTO_ACCEPT_STATUS == "ON":
+    auto_mode = get_setting("auto_accept")
+
+    if auto_mode == "ON":
         try:
             await context.bot.approve_chat_join_request(chat_id=chat.id, user_id=user.id)
-            ACCEPTED_REQUESTS += 1
+            update_stat('accepted', 1)
             await send_sequence_messages(context.bot, user.id)
         except Exception as e:
             logging.error(f"Error in auto_accept: {e}")
@@ -159,7 +254,8 @@ async def join_request_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             logging.error(f"Error in manual_accept notification: {e}")
 
 def main():
-    # Render ke webhook variables ko catch karna
+    init_db()
+    
     port = int(os.environ.get("PORT", 8080))
     render_url = os.environ.get("RENDER_EXTERNAL_URL")
 
@@ -171,8 +267,7 @@ def main():
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, content_handler))
     
     if render_url:
-        print(f"\n🚀 WEBHOOK MODE ACTIVE ON: {render_url}\n")
-        # Polling ki jagah Webhook listen karega, jisse response instant ho jaye
+        print(f"\n🚀 WEBHOOK ENGINE STARTED ON: {render_url}\n")
         app.run_webhook(
             listen="0.0.0.0",
             port=port,
@@ -180,7 +275,7 @@ def main():
             webhook_url=f"{render_url}/{BOT_TOKEN}"
         )
     else:
-        print("\n⚠️ RENDER_EXTERNAL_URL nahi mila, Local Polling running...\n")
+        print("\n🟢 LOCAL POLLING STARTED (Termux Test Mode Active) 🟢\n")
         app.run_polling()
 
 if __name__ == '__main__':
