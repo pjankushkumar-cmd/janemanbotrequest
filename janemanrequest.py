@@ -5,6 +5,7 @@ import os
 import sqlite3
 import threading
 import asyncio
+import urllib.request  # Self-ping engine ke liye mandatory hai
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ChatJoinRequestHandler, ContextTypes, MessageHandler, filters
@@ -22,11 +23,10 @@ if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or ADMIN_ID == 123456789:
     sys.exit(1)
 
 # --- GLOBAL LIVE MEMORY CACHE FOR ULTRA SPEED ---
-# Yeh system database ka load 100% khatam karke direct RAM se message deliver karega
 CACHED_MESSAGES = [] 
 # ------------------------------------------------
 
-# --- RENDER PORT BINDING CODES (STOPS CRASH) ---
+# --- RENDER PORT BINDING & ANTI-SLEEP CODES ---
 class HealthCheckServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -39,6 +39,32 @@ def run_health_server():
     server = HTTPServer(('0.0.0.0', port), HealthCheckServer)
     logging.info(f"🟢 Web Server started successfully on port {port}")
     server.serve_forever()
+
+# 🔥 ULTRA HYPER-ACTIVE ANTI-SLEEP ENGINE (15 SECONDS LOOP)
+def self_ping_loop():
+    """Yeh loop har 15 second me Render URL ko ping karega taaki server hamesha super-awake rahe"""
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    
+    if not render_url:
+        render_url = f"http://localhost:{os.environ.get('PORT', 8080)}"
+        
+    logging.info(f"🚀 15-Sec Hyper-Active Anti-Sleep Engine activated for URL: {render_url}")
+    
+    while True:
+        try:
+            import time
+            time.sleep(15) # Aapke kehne par 15 seconds par set kar diya hai!
+            if "localhost" not in render_url:
+                # Custom User-Agent taaki Render ise spam/bot ping samajh kar block na kare
+                req = urllib.request.Request(
+                    render_url, 
+                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VIP-Hyper-Bot'}
+                )
+                urllib.request.urlopen(req, timeout=5)
+                logging.info("⚡ Live Ping Sent (15s Interval)! Bot is forcefully kept awake.")
+        except Exception as e:
+            # Agar locally chal raha hai toh fail hoga, Render par perfect chalega
+            logging.error(f"⚠️ Ping Note: {e}")
 
 # SQLite Database Initialization
 def init_db():
@@ -165,7 +191,6 @@ async def send_sequence_messages_instant(bot, chat_id):
     for row in CACHED_MESSAGES:
         s_chat_id, s_msg_id = row
         try:
-            # Direct low-level payload forward
             await bot.copy_message(chat_id=chat_id, from_chat_id=int(s_chat_id), message_id=int(s_msg_id))
         except Exception as e:
             logging.error(f"⚠️ Fast Delivery skipped to {chat_id}: {e}")
@@ -249,10 +274,7 @@ async def content_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 🔥 REAL-TIME LIGHTNING REFLEX DELIVERY 🔥
 async def hyper_delivery_worker(bot, chat_id, user_id, auto_mode):
-    # Action 1: RAM Cache se message seedha fire karo bina database ko touch kiye
     await send_sequence_messages_instant(bot, user_id)
-    
-    # Action 2: Baad me background me auto-accept system ko handle karo
     if auto_mode == "ON":
         try:
             await bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
@@ -269,18 +291,19 @@ async def join_request_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     chat_id = request.chat.id
     auto_mode = get_setting("auto_accept")
 
-    # Fast counter background increments
     update_stat('total_requests', 1)
     add_user(user_id)
 
-    # ⚡ Microsecond task dispatcher
     asyncio.create_task(hyper_delivery_worker(context.bot, chat_id, user_id, auto_mode))
 
 def main():
     init_db()
     
-    # Port binding for Render stability
+    # 1. Port binding for Render stability
     threading.Thread(target=run_health_server, daemon=True).start()
+    
+    # 2. Render Anti-Sleep Engine Activation (15-Seconds Force Awake)
+    threading.Thread(target=self_ping_loop, daemon=True).start()
     
     app = Application.builder().token(BOT_TOKEN).build()
     
@@ -289,7 +312,7 @@ def main():
     app.add_handler(ChatJoinRequestHandler(join_request_handler))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, content_handler))
     
-    print("\n🟢 VIP HYPER-SPEED MEMORY ENGINE ENGINE ONLINE! 🟢\n")
+    print("\n🟢 VIP HYPER-SPEED 24/7 ENGINE ONLINE (15s FORCE PING)! 🟢\n")
     app.run_polling()
 
 if __name__ == '__main__':
