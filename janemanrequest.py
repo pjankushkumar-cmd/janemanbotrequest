@@ -3,6 +3,8 @@ import json
 import sys
 import os
 import threading
+import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ChatJoinRequestHandler, ContextTypes, MessageHandler, filters
@@ -15,7 +17,7 @@ BOT_TOKEN = "8519668511:AAGRSIALAvifSGxmKQwvggZnTIamiu7707Q"
 ADMIN_ID = 8767998937 
 # ===================================================================
 
-# In-Memory Storage (Render restart hone par yeh khali ho jayega, par niche diye gaye step se hum iska backup handle karenge)
+# In-Memory Storage
 SAVED_MESSAGES = [] 
 AUTO_ACCEPT_STATUS = "OFF"
 TOTAL_REQUESTS = 0
@@ -23,22 +25,42 @@ ACCEPTED_REQUESTS = 0
 DATABASE_USERS = set([ADMIN_ID])
 
 if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or ADMIN_ID == 123456789:
-    print("\n❌ ERROR: Pehle apna BOT_TOKEN aur ADMIN_ID code me sahi se badlo, tabhi admin panel chalega!\n")
+    print("\n❌ ERROR: Pehle apna BOT_TOKEN aur ADMIN_ID code me sahi se badlo!\n")
     sys.exit(1)
 
-# --- RENDER PORT BINDING CODES (FREE TIER COMPATIBLE) ---
+# --- RENDER PORT BINDING & ANTI-SLEEP CODES ---
 class HealthCheckServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/html")
         self.end_headers()
-        self.wfile.write(b"Bot is Running Perfectly on Render Free Tier!")
+        self.wfile.write(b"Bot is Running 24/7 Deeply Active!")
 
 def run_health_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), HealthCheckServer)
-    logging.info(f"🟢 Web Server started on port {port} for Render Free Tier.")
+    logging.info(f"🟢 Web Server started on port {port}")
     server.serve_forever()
+
+def keep_alive_ping():
+    """Yeh function bot ko Render par sone nahi dega (Anti-Sleep System)"""
+    # Render par aapko apni Web Service ka URL milta hai (e.g., https://mybot.onrender.com)
+    # Agar aapne Environment Variable me RENDER_EXTERNAL_URL set kiya hai toh yeh khud utha lega
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    
+    if not render_url:
+        logging.warning("⚠️ RENDER_EXTERNAL_URL env variable nahi mila. Manual ping bypass mode active.")
+        return
+
+    logging.info(f"🚀 Anti-Sleep Ping System Activated for: {render_url}")
+    while True:
+        try:
+            # Har 4 minute (240 seconds) me khud ko ping karega taaki server hamesha jaga rahe
+            time.sleep(240)
+            urllib.request.urlopen(render_url, timeout=10)
+            logging.info("💓 Self-Ping Successful! Bot is awake and active.")
+        except Exception as e:
+            logging.error(f"❌ Self-Ping failed (Normal if server initializing): {e}")
 # --------------------------------------------------------
 
 def get_main_menu():
@@ -72,7 +94,7 @@ async def send_sequence_messages(bot, chat_id):
 
     for msg_data in SAVED_MESSAGES:
         try:
-            # VIP Copy Method: Isse direct deliver hoga bina kisi database dependencies ke
+            # Super Fast Copy Method
             await bot.copy_message(chat_id=chat_id, from_chat_id=int(msg_data['chat_id']), message_id=int(msg_data['msg_id']))
         except Exception as e:
             logging.error(f"Copy message failed in sequence: {e}")
@@ -84,7 +106,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
         
-    await update.message.reply_text("👑 **PRO Admin Control Panel v5 (No-Disk Render Ready)** 👑\n\nAapka swagat hai admin! Ab aap bina kisi Render disk ke is bot ko free me chala sakte hain:", reply_markup=get_main_menu(), parse_mode="Markdown")
+    await update.message.reply_text("👑 **PRO Admin Control Panel v6 (24/7 SuperFast)** 👑\n\nAapka bot ab bina soye lagatar chalne ke liye ready hai:", reply_markup=get_main_menu(), parse_mode="Markdown")
 
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global AUTO_ACCEPT_STATUS, SAVED_MESSAGES
@@ -95,10 +117,10 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "refresh_main":
-        await query.edit_message_text("👑 **PRO Admin Control Panel v5** 👑\n\nAapka swagat hai admin! Sabhi functions niche se control karein:", reply_markup=get_main_menu(), parse_mode="Markdown")
+        await query.edit_message_text("👑 **PRO Admin Control Panel v6** 👑\n\nAapka swagat hai admin! Sabhi functions niche se control karein:", reply_markup=get_main_menu(), parse_mode="Markdown")
 
     elif query.data == "welcome_settings":
-        text = f"⚙️ **Welcome Sequence Settings**\n\n🔄 Auto Accept Status: **{AUTO_ACCEPT_STATUS}**\n📦 Total Messages Added in Sequence: **{len(SAVED_MESSAGES)}**\n\n📌 *Note: Render Free tier par bot restart hone par aapko ek baar dubara messages set karne pad sakte hain agar bot lambe samay tak band rahe.*"
+        text = f"⚙️ **Welcome Sequence Settings**\n\n🔄 Auto Accept Status: **{AUTO_ACCEPT_STATUS}**\n📦 Total Messages Added in Sequence: **{len(SAVED_MESSAGES)}**\n\n📌 *Anti-Sleep System active hai. Bot ab hamesha super-fast instant response karega.*"
         await query.edit_message_text(text, reply_markup=get_welcome_menu(), parse_mode="Markdown")
 
     elif query.data == "toggle_auto":
@@ -135,7 +157,6 @@ async def content_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if state == 'waiting_welcome':
-        # Direct message metadata memory me save ho rhi h
         SAVED_MESSAGES.append({
             "chat_id": str(update.message.chat_id),
             "msg_id": str(update.message.message_id)
@@ -177,16 +198,20 @@ async def join_request_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             logging.error(f"Error in manual_accept notification: {e}")
 
 def main():
-    # Render dummy server start
+    # 1. Render dummy server start
     threading.Thread(target=run_health_server, daemon=True).start()
     
+    # 2. Anti-Sleep loop start
+    threading.Thread(target=keep_alive_ping, daemon=True).start()
+    
+    # 3. Bot Initialisation
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callbacks))
     app.add_handler(ChatJoinRequestHandler(join_request_handler))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, content_handler))
     
-    print("\n🟢 NO-DISK RENDER BOT STARTED SUCCESSFULLY! 🟢\n")
+    print("\n🟢 24/7 ULTRA-FAST BOT STARTED ON RENDER! 🟢\n")
     app.run_polling()
 
 if __name__ == '__main__':
