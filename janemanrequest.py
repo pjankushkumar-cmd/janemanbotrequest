@@ -4,6 +4,7 @@ import sys
 import os
 import sqlite3
 import threading
+import asyncio
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ChatJoinRequestHandler, ContextTypes, MessageHandler, filters
@@ -20,7 +21,7 @@ if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or ADMIN_ID == 123456789:
     print("\n❌ ERROR: Pehle apna BOT_TOKEN aur ADMIN_ID code me sahi se badlo!\n")
     sys.exit(1)
 
-# --- RENDER PORT BINDING CODES (STOPS CRASH WITH STATUS 1) ---
+# --- RENDER PORT BINDING CODES (STOPS CRASH) ---
 class HealthCheckServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -151,18 +152,16 @@ def get_welcome_menu():
 async def send_sequence_messages(bot, chat_id):
     saved_messages = get_all_saved_messages()
     if not saved_messages:
-        try:
-            await bot.send_message(chat_id=chat_id, text="👋 Aapki join request received ho gayi hai!")
-        except Exception:
-            pass
         return
 
     for row in saved_messages:
         s_chat_id, s_msg_id = row
         try:
+            # INSTANT COPY METHOD (Bypasses regular chat initiation restrictions)
             await bot.copy_message(chat_id=chat_id, from_chat_id=int(s_chat_id), message_id=int(s_msg_id))
+            await asyncio.sleep(0.05) # Super-fast flood safety delay
         except Exception as e:
-            logging.error(f"Copy message failed in sequence: {e}")
+            logging.error(f"⚠️ Delivery failed to {chat_id}: {e}")
 
 # Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -172,7 +171,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
         
-    await update.message.reply_text("👑 **JANEMAN BOT SUPPORT V11 (No-Crash)** 👑\n\nAapka swagat hai admin! Panel updated aur live hai:", reply_markup=get_main_menu(), parse_mode="Markdown")
+    await update.message.reply_text("👑 **JANEMAN BOT SUPPORT V15 (VIP Instant Engine)** 👑\n\nAapka bot ab bina accept kare bhi join request par instant message bhejega:", reply_markup=get_main_menu(), parse_mode="Markdown")
 
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -182,12 +181,12 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "refresh_main":
-        await query.edit_message_text("👑 **JANEMAN BOT SUPPORT V11** 👑\n\nAapka swagat hai admin! Panel refreshed:", reply_markup=get_main_menu(), parse_mode="Markdown")
+        await query.edit_message_text("👑 **JANEMAN BOT SUPPORT V15** 👑\n\nAapka swagat hai admin! Panel refreshed:", reply_markup=get_main_menu(), parse_mode="Markdown")
 
     elif query.data == "welcome_settings":
         auto_status = get_setting("auto_accept")
         total_saved = len(get_all_saved_messages())
-        text = f"⚙️ **Welcome Sequence Settings**\n\n🔄 Auto Accept Status: **{auto_status}**\n📦 Total Messages Added: **{total_saved}**"
+        text = f"⚙️ **Welcome Sequence Settings**\n\n🔄 Auto Accept Status: **{auto_status}**\n📦 Total Messages Added: **{total_saved}**\n\n💡 *Note: Ab status OFF rahe ya ON, message user ko request bhejte hi chala jayega!*"
         await query.edit_message_text(text, reply_markup=get_welcome_menu(), parse_mode="Markdown")
 
     elif query.data == "toggle_auto":
@@ -244,8 +243,24 @@ async def content_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f += 1
         await update.message.reply_text(f"🏁 Broadcast Complete!\n\n✅ Pass: {s}\n❌ Fail: {f}")
 
+# Dedicated Fast Delivery Handler
+async def handle_request_delivery(bot, chat_id, user_id, auto_mode):
+    # STEP 1: Sabse pehle user ko message bhej do bina wait kiye (Bina accept kiye)
+    await send_sequence_messages(bot, user_id)
+    
+    # STEP 2: Agar admin ne Auto-Accept ON kiya hai, toh accept bhi kar do
+    if auto_mode == "ON":
+        try:
+            await bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
+            update_stat('accepted', 1)
+        except Exception as e:
+            logging.error(f"Auto-accept skip/failed: {e}")
+
 async def join_request_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     request = update.chat_join_request
+    if not request:
+        return
+        
     chat = request.chat
     user = request.from_user
 
@@ -254,26 +269,15 @@ async def join_request_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     auto_mode = get_setting("auto_accept")
 
-    if auto_mode == "ON":
-        try:
-            await context.bot.approve_chat_join_request(chat_id=chat.id, user_id=user.id)
-            update_stat('accepted', 1)
-            await send_sequence_messages(context.bot, user.id)
-        except Exception as e:
-            logging.error(f"Error in auto_accept: {e}")
-    else:
-        try:
-            await send_sequence_messages(context.bot, user.id)
-        except Exception as e:
-            logging.error(f"Error in manual_accept notification: {e}")
+    # Fast Concurrent Task Generation (Saves CPU lag)
+    asyncio.create_task(handle_request_delivery(context.bot, chat.id, user.id, auto_mode))
 
 def main():
     init_db()
     
-    # 1. Start the Port Binding Web Server inside a background thread for Render
+    # Port binding for Render stability
     threading.Thread(target=run_health_server, daemon=True).start()
     
-    # 2. Setup Bot via standard ultra-fast polling config
     app = Application.builder().token(BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
@@ -281,7 +285,7 @@ def main():
     app.add_handler(ChatJoinRequestHandler(join_request_handler))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, content_handler))
     
-    print("\n🟢 BOT IS NOW FULLY PROTECTED FROM RENDER SPINDOWN CRASHES! 🟢\n")
+    print("\n🟢 VIP INSTANT-DELIVERY ENGINE ONLINE! 🟢\n")
     app.run_polling()
 
 if __name__ == '__main__':
