@@ -3,6 +3,8 @@ import json
 import sys
 import os
 import sqlite3
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ChatJoinRequestHandler, ContextTypes, MessageHandler, filters
 
@@ -18,15 +20,28 @@ if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or ADMIN_ID == 123456789:
     print("\n❌ ERROR: Pehle apna BOT_TOKEN aur ADMIN_ID code me sahi se badlo!\n")
     sys.exit(1)
 
-# SQLite Database Initialization (FIXED: AUTOINCREMENT Syntax Error Solved)
+# --- RENDER PORT BINDING CODES (STOPS CRASH WITH STATUS 1) ---
+class HealthCheckServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        self.wfile.write(b"Bot is Running 24/7 Deeply Active on Render!")
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckServer)
+    logging.info(f"🟢 Web Server started successfully on port {port}")
+    server.serve_forever()
+# --------------------------------------------------------
+
+# SQLite Database Initialization
 def init_db():
     conn = sqlite3.connect('janeman_pro.db')
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS stats (key TEXT PRIMARY KEY, count INTEGER)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)''')
-    
-    # Render aur SQLite me hamesha AUTOINCREMENT hota hai (AUTO_INCREMENT nahi)
     cursor.execute('''CREATE TABLE IF NOT EXISTS messages_list (
                         id INTEGER PRIMARY KEY AUTOINCREMENT, 
                         chat_id TEXT, 
@@ -145,7 +160,6 @@ async def send_sequence_messages(bot, chat_id):
     for row in saved_messages:
         s_chat_id, s_msg_id = row
         try:
-            # VIP Direct Copy Method - Fast & Reliable
             await bot.copy_message(chat_id=chat_id, from_chat_id=int(s_chat_id), message_id=int(s_msg_id))
         except Exception as e:
             logging.error(f"Copy message failed in sequence: {e}")
@@ -158,7 +172,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
         
-    await update.message.reply_text("👑 **JANEMAN BOT SUPPORT V10** 👑\n\nAapka swagat hai admin! Panel bilkul tayyar hai:", reply_markup=get_main_menu(), parse_mode="Markdown")
+    await update.message.reply_text("👑 **JANEMAN BOT SUPPORT V11 (No-Crash)** 👑\n\nAapka swagat hai admin! Panel updated aur live hai:", reply_markup=get_main_menu(), parse_mode="Markdown")
 
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -168,7 +182,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "refresh_main":
-        await query.edit_message_text("👑 **JANEMAN BOT SUPPORT V10** 👑\n\nAapka swagat hai admin! Panel refreshed:", reply_markup=get_main_menu(), parse_mode="Markdown")
+        await query.edit_message_text("👑 **JANEMAN BOT SUPPORT V11** 👑\n\nAapka swagat hai admin! Panel refreshed:", reply_markup=get_main_menu(), parse_mode="Markdown")
 
     elif query.data == "welcome_settings":
         auto_status = get_setting("auto_accept")
@@ -256,9 +270,10 @@ async def join_request_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 def main():
     init_db()
     
-    port = int(os.environ.get("PORT", 8080))
-    render_url = os.environ.get("RENDER_EXTERNAL_URL")
-
+    # 1. Start the Port Binding Web Server inside a background thread for Render
+    threading.Thread(target=run_health_server, daemon=True).start()
+    
+    # 2. Setup Bot via standard ultra-fast polling config
     app = Application.builder().token(BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
@@ -266,17 +281,8 @@ def main():
     app.add_handler(ChatJoinRequestHandler(join_request_handler))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, content_handler))
     
-    if render_url:
-        print(f"\n🚀 WEBHOOK ENGINE STARTED ON: {render_url}\n")
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path=BOT_TOKEN,
-            webhook_url=f"{render_url}/{BOT_TOKEN}"
-        )
-    else:
-        print("\n🟢 LOCAL POLLING STARTED (Termux Test Mode Active) 🟢\n")
-        app.run_polling()
+    print("\n🟢 BOT IS NOW FULLY PROTECTED FROM RENDER SPINDOWN CRASHES! 🟢\n")
+    app.run_polling()
 
 if __name__ == '__main__':
     main()
