@@ -14,9 +14,8 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Chat
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # =================== [ CRITICAL CONFIGURATION ] ===================
-BOT_TOKEN = "8844782987:AAH-JlrOz6IfEWthWZRjlNyDN0d5vpUAsrA" 
+BOT_TOKEN = "8831391243:AAFNUMEngpQns6MQk3Hf9WZb9uBDuk_3mRw" 
 ADMIN_ID = 8767998937
-ADMIN_ID = 6620641546
 # ===================================================================
 
 if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or ADMIN_ID == 123456789:
