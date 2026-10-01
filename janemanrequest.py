@@ -23,18 +23,27 @@ from telegram.ext import (
 # Fixed admin callback buttons + welcome + broadcast panel
 # ============================================================
 
-# Setup logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
-# =================== [ CRITICAL CONFIGURATION ] ===================
-BOT_TOKEN = "8831391243:AAFNUMEngpQns6MQk3Hf9WZb9uBDuk_3mRw" 
+# ============================================================
+# 🔐 BOT CONFIGURATION — EDIT ONLY THESE 2 LINES
+# ============================================================
+# Yahin apna Telegram Bot Token aur Admin Telegram User ID paste karo.
+# Example:
+# BOT_TOKEN = "123456:ABCDEF..."
+# ADMIN_ID = 123456789
+#
+# ⚠️ Token ko quotes (" ") ke andar rakhna hai.
+# ⚠️ ADMIN_ID number hai, quotes ki zarurat nahi.
+# ============================================================
+BOT_TOKEN = "8831391243:AAFNUMEngpQns6MQk3Hf9WZb9uBDuk_3mRw"
 ADMIN_ID = 8767998937
-# ===================================================================
+# ============================================================
 
-if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or ADMIN_ID == 123456789:
-    print("\n❌ ERROR: Pehle apna BOT_TOKEN aur ADMIN_ID code me sahi se badlo!\n")
-    sys.exit(1)
-    
 DB_FILE = "janeman_pro.db"
 
 # Live RAM cache
@@ -714,7 +723,7 @@ async def content_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     from_chat_id=update.message.chat_id,
                     message_id=update.message.message_id,
                 )
-                success +=1
+                success += 1
             except Exception as exc:
                 failed += 1
                 logger.warning(
@@ -794,14 +803,14 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 # Main
 # ------------------------------------------------------------
 def main():
-    if not BOT_TOKEN:
+    if not BOT_TOKEN or BOT_TOKEN == "PASTE_YOUR_BOT_TOKEN_HERE":
         raise RuntimeError(
-            "BOT_TOKEN environment variable is missing."
+            "BOT_TOKEN set nahi hai. File ke CONFIGURATION section me apna bot token paste karo."
         )
 
-    if not ADMIN_ID:
+    if not ADMIN_ID or ADMIN_ID == 123456789:
         raise RuntimeError(
-            "ADMIN_ID environment variable is missing or invalid."
+            "ADMIN_ID set nahi hai. File ke CONFIGURATION section me apni Telegram numeric ID paste karo."
         )
 
     init_db()
@@ -846,4 +855,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                                         
+        
